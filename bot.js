@@ -42,6 +42,7 @@ const getLaunchOptions = () => {
 };
 
 export const TARGET_VIEWPORT = Object.freeze({ width: 2560, height: 1440, deviceScaleFactor: 1 });
+export const DEFAULT_CROP_PADDING = 70;
 
 export async function applyViewport(page, viewport = TARGET_VIEWPORT) {
   if (!page || typeof page.setViewport !== 'function') {
@@ -61,6 +62,38 @@ export async function applyViewport(page, viewport = TARGET_VIEWPORT) {
   await page.setViewport({ width, height, deviceScaleFactor });
 }
 
+export async function captureCroppedScreenshot(page, padding = DEFAULT_CROP_PADDING) {
+  if (!page || typeof page.screenshot !== 'function' || typeof page.viewport !== 'function') {
+    throw new Error('A Puppeteer page with viewport and screenshot is required');
+  }
+
+  if (!Number.isFinite(padding) || padding < 0) {
+    throw new Error('Padding must be a non-negative finite number');
+  }
+
+  const viewport = page.viewport();
+  if (!viewport || !Number.isFinite(viewport.width) || !Number.isFinite(viewport.height)) {
+    throw new Error('A viewport with finite width and height is required before taking screenshots');
+  }
+
+  const clipWidth = viewport.width - padding * 2;
+  const clipHeight = viewport.height - padding * 2;
+
+  if (clipWidth <= 0 || clipHeight <= 0) {
+    throw new Error('Padding is too large for the current viewport dimensions');
+  }
+
+  return page.screenshot({
+    type: 'png',
+    clip: {
+      x: padding,
+      y: padding,
+      width: clipWidth,
+      height: clipHeight,
+    },
+  });
+}
+
 if (token) {
   const bot = new TelegramBot(token, { polling: true });
 
@@ -77,9 +110,9 @@ if (token) {
       browser = await puppeteer.launch({ ...options, args: options.args ? [...options.args] : undefined });
       page = await browser.newPage();
       await applyViewport(page);
-      await page.goto('https://alerts.in.ua/', { waitUntil: 'networkidle0' });
+      await page.goto('https://alerts.in.ua/', { waitUntil: 'domcontentloaded' });
 
-      const buffer = await page.screenshot({ type: 'png', fullPage: true });
+      const buffer = await captureCroppedScreenshot(page);
       await bot.sendPhoto(chatId, buffer);
     } catch (error) {
       console.error('Failed to send alert image:', error);
