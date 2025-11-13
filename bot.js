@@ -3,6 +3,8 @@ import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
 import dotenv from 'dotenv';
 
+import { fetchLatestChannelMessages, formatChannelMessages } from './channelMessages.js';
+
 dotenv.config();
 
 const token = process.env.BOT_TOKEN;
@@ -43,6 +45,94 @@ const getLaunchOptions = () => {
 
 export const TARGET_VIEWPORT = Object.freeze({ width: 2560, height: 1440, deviceScaleFactor: 1 });
 export const DEFAULT_CROP_PADDING = 70;
+export const ALERT_CANVAS_SELECTORS = Object.freeze([
+  '#alerts-map canvas',
+  '.leaflet-pane canvas',
+  '.mapboxgl-canvas',
+  'canvas',
+]);
+
+const ensureSelectors = (selectors) => {
+  if (!Array.isArray(selectors) || !selectors.length) {
+    throw new Error('A non-empty selectors array is required');
+  }
+  return selectors;
+};
+
+export function generateCanvasDataUrl(root, selectors) {
+  if (!root || typeof root.querySelector !== 'function') {
+    throw new Error('A root with querySelector is required');
+  }
+
+  const selectorsProvided = arguments.length >= 2;
+  const searchSelectors = selectorsProvided ? selectors : ALERT_CANVAS_SELECTORS;
+  const validatedSelectors = ensureSelectors(searchSelectors);
+
+  for (const selector of validatedSelectors) {
+    const node = root.querySelector(selector);
+    if (node && typeof node.toDataURL === 'function') {
+      return node.toDataURL('image/png');
+    }
+  }
+
+  return null;
+}
+
+const toArray = (collection) => {
+  if (!collection) return [];
+  return Array.isArray(collection) ? collection : Array.from(collection);
+};
+
+export function isolateMapLayout(root, selector) {
+  if (!root || typeof root.querySelector !== 'function') {
+    throw new Error('A root with querySelector is required');
+  }
+
+  if (typeof selector !== 'string' || !selector.trim()) {
+    throw new Error('A map selector string is required');
+  }
+
+  const mapElement = root.querySelector(selector);
+  if (!mapElement) return false;
+
+  const siblings = toArray(root.body?.children);
+  siblings.forEach((child) => {
+    if (child !== mapElement && child?.style) {
+      child.style.display = 'none';
+    }
+  });
+
+  const style = mapElement.style ?? (mapElement.style = {});
+  Object.assign(style, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%' });
+
+  if (typeof mapElement.scrollIntoView === 'function') {
+    mapElement.scrollIntoView({ block: 'start', inline: 'start' });
+  }
+
+  return true;
+}
+
+export async function waitForAnySelector(page, selectors = ALERT_CANVAS_SELECTORS, options = {}) {
+  if (!page || typeof page.waitForFunction !== 'function') {
+    throw new Error('A Puppeteer page with waitForFunction is required');
+  }
+
+  const searchSelectors = ensureSelectors(selectors);
+
+  try {
+    await page.waitForFunction(
+      (candidateSelectors) => candidateSelectors.some((selector) => Boolean(document.querySelector(selector))),
+      options,
+      searchSelectors
+    );
+    return true;
+  } catch (error) {
+    if (error?.name === 'TimeoutError') {
+      return false;
+    }
+    throw error;
+  }
+}
 
 export async function applyViewport(page, viewport = TARGET_VIEWPORT) {
   if (!page || typeof page.setViewport !== 'function') {
@@ -102,6 +192,19 @@ if (token) {
     if (!text.includes('тривога')) return;
 
     const chatId = msg.chat.id;
+
+    if (text.includes('чому тривога')) {
+      try {
+        const messages = await fetchLatestChannelMessages({ limit: 10 });
+        const formatted = formatChannelMessages(messages);
+        await bot.sendMessage(chatId, formatted);
+      } catch (error) {
+        console.error('Failed to fetch channel messages:', error);
+        await bot.sendMessage(chatId, 'Не вдалося отримати повідомлення з каналу.');
+      }
+      return;
+    }
+
     let browser;
     let page;
 

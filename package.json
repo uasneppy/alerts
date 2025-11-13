@@ -10,6 +10,7 @@
   "dependencies": {
     "@sparticuz/chromium": "^119.0.2",
     "dotenv": "^16.4.5",
+    "html-entities": "^2.6.0",
     "node-telegram-bot-api": "^0.65.1",
     "puppeteer": "^22.12.1"
   },
