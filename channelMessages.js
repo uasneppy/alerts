@@ -50,13 +50,17 @@ export function extractMessageContents(html, limit = 10) {
   const messages = [];
   let match;
 
-  while (messages.length < safeLimit && (match = MESSAGE_SELECTOR_REGEX.exec(html))) {
+  while ((match = MESSAGE_SELECTOR_REGEX.exec(html))) {
     const cleaned = cleanMessageText(match[1]);
     if (cleaned) messages.push(cleaned);
   }
 
   MESSAGE_SELECTOR_REGEX.lastIndex = 0;
-  return messages.slice(0, safeLimit);
+
+  if (!messages.length) return [];
+
+  const latestMessages = messages.slice(-safeLimit).reverse();
+  return latestMessages;
 }
 
 export async function fetchLatestChannelMessages({ limit = 10, fetchFn = globalThis.fetch, url = CHANNEL_URL } = {}) {

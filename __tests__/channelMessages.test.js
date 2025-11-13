@@ -43,13 +43,25 @@ describe('channelMessages utilities', () => {
   describe('extractMessageContents', () => {
     it('extracts up to the requested number of messages', () => {
       const result = extractMessageContents(sampleHtml, 1);
-      expect(result).toEqual(['Перший рядок\nдругий рядок & більше деталей лінк']);
+      expect(result).toEqual(['Третє повідомлення з жирним текстом\n• пункт 1\n• пункт 2']);
     });
 
     it('returns multiple cleaned messages respecting the limit', () => {
       const result = extractMessageContents(sampleHtml, 5);
       expect(result).toEqual([
+        'Третє повідомлення з жирним текстом\n• пункт 1\n• пункт 2',
         'Перший рядок\nдругий рядок & більше деталей лінк',
+      ]);
+    });
+
+    it('returns the latest messages when limit is lower than total entries', () => {
+      const extraHtml = `
+        ${sampleHtml}
+        <div class="tgme_widget_message_text js-message_text">Фінальне</div>
+      `;
+      const result = extractMessageContents(extraHtml, 2);
+      expect(result).toEqual([
+        'Фінальне',
         'Третє повідомлення з жирним текстом\n• пункт 1\n• пункт 2',
       ]);
     });
