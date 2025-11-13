@@ -194,35 +194,38 @@ if (token) {
     const chatId = msg.chat.id;
 
     if (text.includes('чому тривога')) {
-      try {
-        const messages = await fetchLatestChannelMessages({ limit: 10 });
-        const formatted = formatChannelMessages(messages);
-        await bot.sendMessage(chatId, formatted);
-      } catch (error) {
-        console.error('Failed to fetch channel messages:', error);
-        await bot.sendMessage(chatId, 'Не вдалося отримати повідомлення з каналу.');
-      }
-      return;
-    }
+  try {
+    // Тягнемо трохи більше, а потім самі обираємо останні 5
+    const messages = await fetchLatestChannelMessages({ limit: 50 });
+
+    // Підстрахуємось і відсортуємо за датою або message_id, якщо дата відсутня
+    const sorted = [...messages].sort((a, b) => {
+      const aKey = a.date ?? a.message_id ?? 0;
+      const bKey = b.date ?? b.message_id ?? 0;
+      return bKey - aKey; // новіші спочатку
+    });
+
+    const latestFive = sorted.slice(0, 5);
+    const formatted = formatChannelMessages(latestFive);
+
+    await bot.sendMessage(chatId, formatted);
+  } catch (error) {
+    console.error('Failed to fetch channel messages:', error);
+    await bot.sendMessage(chatId, 'Не вдалося отримати повідомлення з каналу.');
+  }
+  return;
+}
 
     let browser;
     let page;
 
     try {
       const options = await getLaunchOptions();
-      browser = await puppeteer.launch({ ...options, args: options.args ? [...options.args] : undefined });
-      page = await browser.newPage();
-      await applyViewport(page);
-      await page.goto('https://alerts.in.ua/', { waitUntil: 'domcontentloaded' });
 
-      const buffer = await captureCroppedScreenshot(page);
-      await bot.sendPhoto(chatId, buffer);
-    } catch (error) {
-      console.error('Failed to send alert image:', error);
-      await bot.sendMessage(chatId, 'Не вдалося отримати мапу тривог.');
-    } finally {
-      if (page) await page.close();
-      if (browser) await browser.close();
-    }
-  });
-}
+      browser = await puppeteer.launch({
+        ...options,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disab
