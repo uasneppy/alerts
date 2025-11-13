@@ -41,12 +41,49 @@ const getLaunchOptions = () => {
   return cachedLaunchOptionsPromise;
 };
 
-export const dataUrlToBuffer = (dataUrl) => {
-  if (!dataUrl) throw new Error('Data URL is required');
-  const match = dataUrl.match(/^data:image\/png;base64,(.+)$/);
-  if (!match) throw new Error('Invalid PNG data URL');
-  return Buffer.from(match[1], 'base64');
-};
+export const MAP_SELECTOR = '#map';
+
+export function isolateMapLayout(root, selector = MAP_SELECTOR) {
+  if (!root || typeof root.querySelector !== 'function') {
+    throw new Error('A root with querySelector is required');
+  }
+
+  if (!selector || typeof selector !== 'string') {
+    throw new Error('A map selector string is required');
+  }
+
+  const map = root.querySelector(selector);
+  if (!map) return false;
+
+  const body = root.body ?? root;
+
+  if (body?.style) {
+    body.style.margin = '0';
+    if ('padding' in body.style) body.style.padding = '0';
+  }
+
+  if (body?.children) {
+    for (const child of Array.from(body.children)) {
+      if (child !== map && child?.style) {
+        child.style.display = 'none';
+      }
+    }
+  }
+
+  if (map.style) {
+    map.style.position = 'absolute';
+    map.style.top = '0';
+    map.style.left = '0';
+    map.style.width = '100%';
+    map.style.height = '100%';
+  }
+
+  if (typeof map.scrollIntoView === 'function') {
+    map.scrollIntoView({ block: 'start', inline: 'start' });
+  }
+
+  return true;
+}
 
 export const ALERT_CANVAS_SELECTORS = Object.freeze([
   '#screenshotCanvas',
@@ -117,18 +154,20 @@ if (token) {
       browser = await puppeteer.launch({ ...options, args: options.args ? [...options.args] : undefined });
       page = await browser.newPage();
       await page.goto('https://alerts.in.ua/', { waitUntil: 'networkidle0' });
-      await waitForAnySelector(page, ALERT_CANVAS_SELECTORS, { timeout: 20000 });
 
-      const generatorSource = `(${generateCanvasDataUrl.toString()})`;
-      const dataUrl = await page.evaluate(
-        ({ selectors, generatorSource }) => {
-          const generateCanvasDataUrl = eval(generatorSource);
-          return generateCanvasDataUrl(document, selectors);
+      const isolationSource = `(${isolateMapLayout.toString()})`;
+      const mapPrepared = await page.evaluate(
+        ({ selector, isolationSource }) => {
+          const isolateMapLayout = eval(isolationSource);
+          return isolateMapLayout(document, selector);
         },
-        { selectors: ALERT_CANVAS_SELECTORS, generatorSource }
+        { selector: MAP_SELECTOR, isolationSource }
       );
 
-      const buffer = dataUrl ? dataUrlToBuffer(dataUrl) : await page.screenshot({ fullPage: true });
+      const mapHandle = await page.$(MAP_SELECTOR);
+      const buffer = mapPrepared && mapHandle
+        ? await mapHandle.screenshot({ type: 'png' })
+        : await page.screenshot({ fullPage: true });
       await bot.sendPhoto(chatId, buffer);
     } catch (error) {
       console.error('Failed to send alert image:', error);
