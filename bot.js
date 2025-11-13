@@ -41,101 +41,24 @@ const getLaunchOptions = () => {
   return cachedLaunchOptionsPromise;
 };
 
-export const MAP_SELECTOR = '#map';
+export const TARGET_VIEWPORT = Object.freeze({ width: 2560, height: 1440, deviceScaleFactor: 1 });
 
-export function isolateMapLayout(root, selector = MAP_SELECTOR) {
-  if (!root || typeof root.querySelector !== 'function') {
-    throw new Error('A root with querySelector is required');
+export async function applyViewport(page, viewport = TARGET_VIEWPORT) {
+  if (!page || typeof page.setViewport !== 'function') {
+    throw new Error('A Puppeteer page with setViewport is required');
   }
 
-  if (!selector || typeof selector !== 'string') {
-    throw new Error('A map selector string is required');
+  if (!viewport || typeof viewport !== 'object') {
+    throw new Error('A viewport object is required');
   }
 
-  const map = root.querySelector(selector);
-  if (!map) return false;
+  const { width, height, deviceScaleFactor = 1 } = viewport;
 
-  const body = root.body ?? root;
-
-  if (body?.style) {
-    body.style.margin = '0';
-    if ('padding' in body.style) body.style.padding = '0';
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    throw new Error('Viewport width and height must be finite numbers');
   }
 
-  if (body?.children) {
-    for (const child of Array.from(body.children)) {
-      if (child !== map && child?.style) {
-        child.style.display = 'none';
-      }
-    }
-  }
-
-  if (map.style) {
-    map.style.position = 'absolute';
-    map.style.top = '0';
-    map.style.left = '0';
-    map.style.width = '100%';
-    map.style.height = '100%';
-  }
-
-  if (typeof map.scrollIntoView === 'function') {
-    map.scrollIntoView({ block: 'start', inline: 'start' });
-  }
-
-  return true;
-}
-
-export const ALERT_CANVAS_SELECTORS = Object.freeze([
-  '#screenshotCanvas',
-  '#map canvas',
-  'canvas.maplibregl-canvas',
-  'canvas.mapboxgl-canvas',
-  'canvas',
-]);
-
-const isTimeoutError = (error) => error?.name === 'TimeoutError';
-
-export async function waitForAnySelector(page, selectors, { timeout = 20000 } = {}) {
-  if (!page || typeof page.waitForFunction !== 'function') {
-    throw new Error('A Puppeteer page with waitForFunction is required');
-  }
-
-  if (!Array.isArray(selectors) || selectors.length === 0) {
-    throw new Error('A non-empty selectors array is required');
-  }
-
-  try {
-    await page.waitForFunction(
-      (selectors) => selectors.some((selector) => document.querySelector(selector)),
-      { timeout },
-      selectors
-    );
-    return true;
-  } catch (error) {
-    if (isTimeoutError(error)) {
-      return false;
-    }
-    throw error;
-  }
-}
-
-export function generateCanvasDataUrl(root, selectors) {
-  if (!root || typeof root.querySelector !== 'function') {
-    throw new Error('A root with querySelector is required');
-  }
-
-  if (!Array.isArray(selectors) || selectors.length === 0) {
-    throw new Error('A non-empty selectors array is required');
-  }
-
-  for (const selector of selectors) {
-    const node = root.querySelector(selector);
-    if (node && typeof node.toDataURL === 'function') {
-      return node.toDataURL('image/png');
-    }
-  }
-
-  return null;
+  await page.setViewport({ width, height, deviceScaleFactor });
 }
 
 if (token) {
@@ -153,21 +76,10 @@ if (token) {
       const options = await getLaunchOptions();
       browser = await puppeteer.launch({ ...options, args: options.args ? [...options.args] : undefined });
       page = await browser.newPage();
+      await applyViewport(page);
       await page.goto('https://alerts.in.ua/', { waitUntil: 'networkidle0' });
 
-      const isolationSource = `(${isolateMapLayout.toString()})`;
-      const mapPrepared = await page.evaluate(
-        ({ selector, isolationSource }) => {
-          const isolateMapLayout = eval(isolationSource);
-          return isolateMapLayout(document, selector);
-        },
-        { selector: MAP_SELECTOR, isolationSource }
-      );
-
-      const mapHandle = await page.$(MAP_SELECTOR);
-      const buffer = mapPrepared && mapHandle
-        ? await mapHandle.screenshot({ type: 'png' })
-        : await page.screenshot({ fullPage: true });
+      const buffer = await page.screenshot({ type: 'png', fullPage: true });
       await bot.sendPhoto(chatId, buffer);
     } catch (error) {
       console.error('Failed to send alert image:', error);
