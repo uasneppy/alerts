@@ -41,12 +41,25 @@ const getLaunchOptions = () => {
   return cachedLaunchOptionsPromise;
 };
 
-export const dataUrlToBuffer = (dataUrl) => {
-  if (!dataUrl) throw new Error('Data URL is required');
-  const match = dataUrl.match(/^data:image\/png;base64,(.+)$/);
-  if (!match) throw new Error('Invalid PNG data URL');
-  return Buffer.from(match[1], 'base64');
-};
+export const TARGET_VIEWPORT = Object.freeze({ width: 2560, height: 1440, deviceScaleFactor: 1 });
+
+export async function applyViewport(page, viewport = TARGET_VIEWPORT) {
+  if (!page || typeof page.setViewport !== 'function') {
+    throw new Error('A Puppeteer page with setViewport is required');
+  }
+
+  if (!viewport || typeof viewport !== 'object') {
+    throw new Error('A viewport object is required');
+  }
+
+  const { width, height, deviceScaleFactor = 1 } = viewport;
+
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    throw new Error('Viewport width and height must be finite numbers');
+  }
+
+  await page.setViewport({ width, height, deviceScaleFactor });
+}
 
 if (token) {
   const bot = new TelegramBot(token, { polling: true });
@@ -63,13 +76,10 @@ if (token) {
       const options = await getLaunchOptions();
       browser = await puppeteer.launch({ ...options, args: options.args ? [...options.args] : undefined });
       page = await browser.newPage();
+      await applyViewport(page);
       await page.goto('https://alerts.in.ua/', { waitUntil: 'networkidle0' });
-      await page.waitForSelector('#screenshotCanvas', { visible: true, timeout: 20000 });
-      const dataUrl = await page.evaluate(() => {
-        const canvas = document.getElementById('screenshotCanvas');
-        return canvas?.toDataURL('image/png') ?? null;
-      });
-      const buffer = dataUrlToBuffer(dataUrl);
+
+      const buffer = await page.screenshot({ type: 'png', fullPage: true });
       await bot.sendPhoto(chatId, buffer);
     } catch (error) {
       console.error('Failed to send alert image:', error);
