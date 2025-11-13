@@ -1,7 +1,29 @@
-import { decode } from 'html-entities';
-
 export const CHANNEL_URL = 'https://t.me/s/kpszsu';
 const MESSAGE_SELECTOR_REGEX = /<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+
+const NAMED_ENTITIES = Object.freeze({
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: '\u00A0',
+});
+
+const decodeHtmlEntities = (value) =>
+  value.replace(/&(#\d+|#x[a-f0-9]+|[a-z][a-z0-9]+);/gi, (match, entity) => {
+    if (entity[0] === '#') {
+      const isHex = entity[1]?.toLowerCase() === 'x';
+      const code = parseInt(entity.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+      if (!Number.isNaN(code)) {
+        return String.fromCodePoint(code);
+      }
+      return match;
+    }
+
+    const normalized = entity.toLowerCase();
+    return NAMED_ENTITIES[normalized] ?? match;
+  });
 
 const sanitizeLimit = (limit) => {
   if (!Number.isInteger(limit) || limit <= 0) {
@@ -29,7 +51,7 @@ export function cleanMessageText(rawHtml) {
   const normalizedSource = rawHtml.replace(/\s*\n\s*/g, ' ');
   const withBreaks = replaceHtmlBreaks(normalizedSource);
   const withoutTags = stripHtmlTags(withBreaks);
-  const decoded = decode(withoutTags, { level: 'html5' });
+  const decoded = decodeHtmlEntities(withoutTags);
 
   return decoded
     .replace(/\u00A0/g, ' ')

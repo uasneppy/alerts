@@ -3,6 +3,8 @@ import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
 import dotenv from 'dotenv';
 
+import { fetchLatestChannelMessages, formatChannelMessages } from './channelMessages.js';
+
 dotenv.config();
 
 const token = process.env.BOT_TOKEN;
@@ -43,6 +45,13 @@ const getLaunchOptions = () => {
 
 export const TARGET_VIEWPORT = Object.freeze({ width: 2560, height: 1440, deviceScaleFactor: 1 });
 export const DEFAULT_CROP_PADDING = 70;
+export const ALERT_CANVAS_SELECTORS = Object.freeze([
+  '#alerts-map canvas',
+  '.mapboxgl-canvas',
+  'canvas',
+]);
+export const CHANNEL_MESSAGE_TRIGGER = 'чому тривога';
+export const CHANNEL_MESSAGE_LIMIT = 10;
 
 export async function applyViewport(page, viewport = TARGET_VIEWPORT) {
   if (!page || typeof page.setViewport !== 'function') {
@@ -94,14 +103,123 @@ export async function captureCroppedScreenshot(page, padding = DEFAULT_CROP_PADD
   });
 }
 
+export function generateCanvasDataUrl(root, selectors) {
+  if (!root || typeof root.querySelector !== 'function') {
+    throw new Error('A root with querySelector is required');
+  }
+
+  if (!Array.isArray(selectors) || !selectors.length) {
+    throw new Error('A non-empty selectors array is required');
+  }
+
+  for (const selector of selectors) {
+    const candidate = typeof selector === 'string' ? root.querySelector(selector) : null;
+    if (candidate && typeof candidate.toDataURL === 'function') {
+      return candidate.toDataURL('image/png');
+    }
+  }
+
+  return null;
+}
+
+export async function waitForAnySelector(page, selectors = ALERT_CANVAS_SELECTORS, options = {}) {
+  if (!page || typeof page.waitForFunction !== 'function') {
+    throw new Error('A Puppeteer page with waitForFunction is required');
+  }
+
+  if (!Array.isArray(selectors) || !selectors.length) {
+    throw new Error('A non-empty selectors array is required');
+  }
+
+  try {
+    await page.waitForFunction(
+      (targetSelectors) => targetSelectors.some((selector) => document.querySelector(selector)),
+      options,
+      selectors
+    );
+    return true;
+  } catch (error) {
+    if (error?.name === 'TimeoutError') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export function isolateMapLayout(root, selector) {
+  if (!root || typeof root.querySelector !== 'function') {
+    throw new Error('A root with querySelector is required');
+  }
+
+  if (typeof selector !== 'string' || !selector.trim()) {
+    throw new Error('A map selector string is required');
+  }
+
+  const mapElement = root.querySelector(selector);
+  if (!mapElement) {
+    return false;
+  }
+
+  const siblings = Array.isArray(root.body?.children) ? root.body.children : [];
+  siblings.forEach((child) => {
+    if (child !== mapElement && child?.style) {
+      child.style.display = 'none';
+    }
+  });
+
+  if (mapElement.style) {
+    mapElement.style.position = 'absolute';
+    mapElement.style.inset = '0';
+    mapElement.style.width = '100%';
+    mapElement.style.height = '100%';
+  }
+
+  if (typeof mapElement.scrollIntoView === 'function') {
+    mapElement.scrollIntoView({ block: 'start', inline: 'start' });
+  }
+
+  return true;
+}
+
+export async function handleChannelMessageRequest({
+  botInstance,
+  chatId,
+  limit = CHANNEL_MESSAGE_LIMIT,
+  fetchMessages = fetchLatestChannelMessages,
+  formatMessages = formatChannelMessages,
+} = {}) {
+  if (!botInstance || typeof botInstance.sendMessage !== 'function') {
+    throw new Error('A Telegram bot instance with sendMessage is required');
+  }
+
+  if (typeof chatId === 'undefined' || chatId === null) {
+    throw new Error('A valid chatId is required');
+  }
+
+  const messages = await fetchMessages({ limit });
+  const formatted = formatMessages(messages);
+  await botInstance.sendMessage(chatId, formatted, { disable_web_page_preview: true });
+}
+
 if (token) {
   const bot = new TelegramBot(token, { polling: true });
 
   bot.on('message', async (msg) => {
     const text = msg.text?.toLowerCase() ?? '';
+    const chatId = msg.chat.id;
+
+    if (text.includes(CHANNEL_MESSAGE_TRIGGER)) {
+      try {
+        await handleChannelMessageRequest({ botInstance: bot, chatId });
+      } catch (error) {
+        console.error('Failed to send channel messages:', error);
+        await bot.sendMessage(chatId, 'Не вдалося отримати повідомлення з каналу @kpszsu.');
+      }
+      return;
+    }
+
     if (!text.includes('тривога')) return;
 
-    const chatId = msg.chat.id;
     let browser;
     let page;
 
