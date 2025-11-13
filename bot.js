@@ -210,19 +210,11 @@ if (token) {
 
     try {
       const options = await getLaunchOptions();
-      browser = await puppeteer.launch({ ...options, args: options.args ? [...options.args] : undefined });
-      page = await browser.newPage();
-      await applyViewport(page);
-      await page.goto('https://alerts.in.ua/', { waitUntil: 'domcontentloaded' });
 
-      const buffer = await captureCroppedScreenshot(page);
-      await bot.sendPhoto(chatId, buffer);
-    } catch (error) {
-      console.error('Failed to send alert image:', error);
-      await bot.sendMessage(chatId, 'Не вдалося отримати мапу тривог.');
-    } finally {
-      if (page) await page.close();
-      if (browser) await browser.close();
-    }
-  });
-}
+      browser = await puppeteer.launch({
+        ...options,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disab
