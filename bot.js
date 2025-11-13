@@ -85,6 +85,59 @@ export function isolateMapLayout(root, selector = MAP_SELECTOR) {
   return true;
 }
 
+export const ALERT_CANVAS_SELECTORS = Object.freeze([
+  '#screenshotCanvas',
+  '#map canvas',
+  'canvas.maplibregl-canvas',
+  'canvas.mapboxgl-canvas',
+  'canvas',
+]);
+
+const isTimeoutError = (error) => error?.name === 'TimeoutError';
+
+export async function waitForAnySelector(page, selectors, { timeout = 20000 } = {}) {
+  if (!page || typeof page.waitForFunction !== 'function') {
+    throw new Error('A Puppeteer page with waitForFunction is required');
+  }
+
+  if (!Array.isArray(selectors) || selectors.length === 0) {
+    throw new Error('A non-empty selectors array is required');
+  }
+
+  try {
+    await page.waitForFunction(
+      (selectors) => selectors.some((selector) => document.querySelector(selector)),
+      { timeout },
+      selectors
+    );
+    return true;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export function generateCanvasDataUrl(root, selectors) {
+  if (!root || typeof root.querySelector !== 'function') {
+    throw new Error('A root with querySelector is required');
+  }
+
+  if (!Array.isArray(selectors) || selectors.length === 0) {
+    throw new Error('A non-empty selectors array is required');
+  }
+
+  for (const selector of selectors) {
+    const node = root.querySelector(selector);
+    if (node && typeof node.toDataURL === 'function') {
+      return node.toDataURL('image/png');
+    }
+  }
+
+  return null;
+}
+
 if (token) {
   const bot = new TelegramBot(token, { polling: true });
 
