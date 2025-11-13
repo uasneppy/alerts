@@ -48,6 +48,59 @@ export const dataUrlToBuffer = (dataUrl) => {
   return Buffer.from(match[1], 'base64');
 };
 
+export const ALERT_CANVAS_SELECTORS = Object.freeze([
+  '#screenshotCanvas',
+  '#map canvas',
+  'canvas.maplibregl-canvas',
+  'canvas.mapboxgl-canvas',
+  'canvas',
+]);
+
+const isTimeoutError = (error) => error?.name === 'TimeoutError';
+
+export async function waitForAnySelector(page, selectors, { timeout = 20000 } = {}) {
+  if (!page || typeof page.waitForFunction !== 'function') {
+    throw new Error('A Puppeteer page with waitForFunction is required');
+  }
+
+  if (!Array.isArray(selectors) || selectors.length === 0) {
+    throw new Error('A non-empty selectors array is required');
+  }
+
+  try {
+    await page.waitForFunction(
+      (selectors) => selectors.some((selector) => document.querySelector(selector)),
+      { timeout },
+      selectors
+    );
+    return true;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export function generateCanvasDataUrl(root, selectors) {
+  if (!root || typeof root.querySelector !== 'function') {
+    throw new Error('A root with querySelector is required');
+  }
+
+  if (!Array.isArray(selectors) || selectors.length === 0) {
+    throw new Error('A non-empty selectors array is required');
+  }
+
+  for (const selector of selectors) {
+    const node = root.querySelector(selector);
+    if (node && typeof node.toDataURL === 'function') {
+      return node.toDataURL('image/png');
+    }
+  }
+
+  return null;
+}
+
 if (token) {
   const bot = new TelegramBot(token, { polling: true });
 
@@ -64,12 +117,18 @@ if (token) {
       browser = await puppeteer.launch({ ...options, args: options.args ? [...options.args] : undefined });
       page = await browser.newPage();
       await page.goto('https://alerts.in.ua/', { waitUntil: 'networkidle0' });
-      await page.waitForSelector('#screenshotCanvas', { visible: true, timeout: 20000 });
-      const dataUrl = await page.evaluate(() => {
-        const canvas = document.getElementById('screenshotCanvas');
-        return canvas?.toDataURL('image/png') ?? null;
-      });
-      const buffer = dataUrlToBuffer(dataUrl);
+      await waitForAnySelector(page, ALERT_CANVAS_SELECTORS, { timeout: 20000 });
+
+      const generatorSource = `(${generateCanvasDataUrl.toString()})`;
+      const dataUrl = await page.evaluate(
+        ({ selectors, generatorSource }) => {
+          const generateCanvasDataUrl = eval(generatorSource);
+          return generateCanvasDataUrl(document, selectors);
+        },
+        { selectors: ALERT_CANVAS_SELECTORS, generatorSource }
+      );
+
+      const buffer = dataUrl ? dataUrlToBuffer(dataUrl) : await page.screenshot({ fullPage: true });
       await bot.sendPhoto(chatId, buffer);
     } catch (error) {
       console.error('Failed to send alert image:', error);
