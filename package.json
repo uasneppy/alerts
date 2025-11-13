@@ -1,0 +1,18 @@
+{
+  "name": "alerts-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.65.1",
+    "puppeteer": "^22.12.1"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}
